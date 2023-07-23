@@ -1,0 +1,77 @@
+#import websocket
+from websockets.sync.client import connect
+from datetime import datetime
+import os, json, hmac, hashlib
+
+TICKER = "tSHIBF0:USTF0"
+WS_PUB_ENDPOINT = 'wss://api-pub.bitfinex.com/ws/2'
+WS_AUTH_ENDPOINT = 'wss://api.bitfinex.com/ws/2'
+
+API_KEY, API_SECRET = (
+    os.getenv("BFX_API_KEY"),
+    os.getenv("BFX_API_SECRET")
+)
+
+def on_message(ws, message):
+    print(message)
+
+def on_error(ws, error):
+    print(error)
+
+def on_close(ws):
+    print('### API connection closed ###')
+    os._exit(0)
+
+def on_open(ws):
+    print('API connected')
+    ticker = {
+        'event': 'subscribe',
+        'channel': 'ticker',
+        'symbol': TICKER
+    }
+    ws.send(json.dumps(ticker))
+
+
+def build_autentication_message(api_key, api_secret):
+    message = { "event": "auth" }
+    
+    message["apiKey"] = api_key
+
+    message["authNonce"] = round(datetime.now().timestamp() * 1_000)
+
+    message["authPayload"] = f"AUTH{message['authNonce']}"
+
+    message["authSig"] = hmac.new(
+        key=api_secret.encode("utf8"),
+        msg=message["authPayload"].encode("utf8"),
+        digestmod=hashlib.sha384
+    ).hexdigest()
+
+    return json.dumps(message)
+
+with connect(WS_AUTH_ENDPOINT) as websocket:
+    websocket.send( \
+        build_autentication_message(API_KEY, API_SECRET))
+
+    for message in websocket:
+        data = json.loads(message)
+
+        if isinstance(data, dict):
+            if data["event"] == "auth":
+                if data["status"] != "OK":
+                    raise Exception("Cannot authenticate with given API-KEY and API-SECRET.")
+
+                print(f"Successful login for user <{data['userId']}>.")
+
+
+# def connect_api():
+#     global ws
+#     websocket.enableTrace(False)
+#     ws = websocket.WebSocketApp(WS_AUTH_ENDPOINT,
+#                             on_message = on_message,
+#                             on_error = on_error,
+#                             on_close = on_close,
+#                             on_open = on_open)
+#     ws.run_forever()
+
+# connect_api()
